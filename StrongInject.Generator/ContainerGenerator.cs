@@ -933,22 +933,11 @@ namespace StrongInject.Generator
                 file.AppendLineIndented(@"return;");
                 foreach (var (_, disposeFieldName, lockName) in singleInstanceMethodsDisposalOrderings)
                 {
-                    file.Append(@"await this.");
-                    file.Append(lockName);
-                    file.AppendLine(".WaitAsync();");
-                    file.AppendLine("try");
-                    file.AppendLine("{");
+                    EnterLock(file, lockName);
                     file.Append("await (this.");
                     file.Append(disposeFieldName);
                     file.AppendLine("?.Invoke() ?? default);");
-
-                    file.AppendLine("}");
-                    file.AppendLine("finally");
-                    file.AppendLine("{");
-                    file.Append("this.");
-                    file.Append(lockName);
-                    file.AppendLine(".Release();");
-                    file.AppendLine("}");
+                    ExitLock(file, lockName);
                 }
 
                 file.AppendLine("}");
