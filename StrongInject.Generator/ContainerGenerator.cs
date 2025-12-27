@@ -285,9 +285,9 @@ namespace StrongInject.Generator
                 methodSource.Append(singleInstanceFieldSetName);
                 methodSource.AppendLine(';');
 
-                methodSource.Append("private global::System.Threading.SemaphoreSlim ");
+                methodSource.Append("private global::System.Object ");
                 methodSource.Append(lockName);
-                methodSource.AppendLine(" = new global::System.Threading.SemaphoreSlim(1);");
+                methodSource.AppendLine(" = new global::System.Object();");
 
                 methodSource.Append((_implementsAsyncContainer
                     ? "private global::System.Func<global::System.Threading.Tasks.ValueTask> "
@@ -303,14 +303,7 @@ namespace StrongInject.Generator
                 methodSource.AppendLine("{");
                 CheckFieldSet(methodSource, singleInstanceFieldSetName, singleInstanceFieldName);
 
-                if (isAsync)
-                    methodSource.Append("await ");
-                methodSource.Append("this.");
-                methodSource.Append(lockName);
-                methodSource.AppendLine(isAsync ? ".WaitAsync();" : ".Wait();");
-
-                methodSource.AppendLine("try");
-                methodSource.AppendLine("{");
+                EnterLock(methodSource, lockName);
                 CheckFieldSet(methodSource, singleInstanceFieldSetName, singleInstanceFieldName);
 
                 methodSource.AppendLine("if (this.Disposed)");
@@ -349,15 +342,9 @@ namespace StrongInject.Generator
                 methodSource.AppendLine("{");
                 EmitDisposals(methodSource, ops);
                 methodSource.AppendLine("};");
-                methodSource.AppendLine("}");
-                methodSource.AppendLine("finally");
-                methodSource.AppendLine("{");
 
-                methodSource.Append("this.");
-                methodSource.Append(lockName);
-                methodSource.AppendLine(".Release();");
+                ExitLock(methodSource, lockName);
 
-                methodSource.AppendLine("}");
                 methodSource.Append("return ");
                 methodSource.Append(singleInstanceFieldName);
                 methodSource.AppendLine(";");
@@ -982,21 +969,11 @@ namespace StrongInject.Generator
                 file.AppendLineIndented("return;");
                 foreach (var (_, disposeFieldName, lockName) in singleInstanceMethodsDisposalOrderings)
                 {
-                    file.Append(@"this.");
-                    file.Append(lockName);
-                    file.AppendLine(".Wait();");
-                    file.AppendLine("try");
-                    file.AppendLine("{");
+                    EnterLock(file, lockName);
                     file.Append("this.");
                     file.Append(disposeFieldName);
                     file.AppendLine("?.Invoke();");
-                    file.AppendLine("}");
-                    file.AppendLine("finally");
-                    file.AppendLine("{");
-                    file.Append("this.");
-                    file.Append(lockName);
-                    file.AppendLine(".Release();");
-                    file.AppendLine("}");
+                    ExitLock(file, lockName);
                 }
                 file.AppendLine('}');
             }
@@ -1009,6 +986,26 @@ namespace StrongInject.Generator
             methodSource.Append("(nameof(");
             methodSource.Append(_container.NameWithTypeParameters());
             methodSource.AppendLine("));");
+        }
+
+        void EnterLock(AutoIndenter methodSource, string lockName)
+        {
+            methodSource.AppendLine("try");
+            methodSource.AppendLine("{");
+            methodSource.Append("global::System.Threading.Monitor.Enter(");
+            methodSource.Append(lockName);
+            methodSource.AppendLine(");");
+        }
+
+        void ExitLock(AutoIndenter methodSource, string lockName)
+        {
+            methodSource.AppendLine("}");
+            methodSource.AppendLine("finally");
+            methodSource.AppendLine("{");
+            methodSource.Append("global::System.Threading.Monitor.Exit(");
+            methodSource.Append(lockName);
+            methodSource.AppendLine(");");
+            methodSource.AppendLine("}");
         }
     }
 }
