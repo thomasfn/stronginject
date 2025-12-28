@@ -258,9 +258,9 @@ namespace StrongInject.Generator
                 _containerMembersSource.Append(singleInstanceFieldSetName);
                 _containerMembersSource.Append(';');
 
-                _containerMembersSource.Append("private global::System.Threading.SemaphoreSlim ");
-                _containerMembersSource.Append(lockName );
-                _containerMembersSource.Append("=new global::System.Threading.SemaphoreSlim(1);");
+                _containerMembersSource.Append("private global::System.Object ");
+                _containerMembersSource.Append(lockName);
+                _containerMembersSource.AppendLine(" = new global::System.Object();");
                 
                 _containerMembersSource.Append((_implementsAsyncContainer
                     ? "private global::System.Func<global::System.Threading.Tasks.ValueTask> "
@@ -276,15 +276,8 @@ namespace StrongInject.Generator
                 methodSource.Append("(){");
                 
                 CheckFieldSet(methodSource, singleInstanceFieldSetName, singleInstanceFieldName);
-                
-                if (isAsync)
-                    methodSource.Append("await ");
-                methodSource.Append("this.");
-                methodSource.Append(lockName);
-                methodSource.Append(isAsync ? ".WaitAsync();" : ".Wait();");
 
-                methodSource.Append("try{");
-                
+                EnterLock(methodSource, lockName);
                 CheckFieldSet(methodSource, singleInstanceFieldSetName, singleInstanceFieldName);
                 
                 methodSource.Append("if(this.Disposed)");
@@ -319,11 +312,11 @@ namespace StrongInject.Generator
                     methodSource.Append("async");
                 methodSource.Append("() => {");
                 EmitDisposals(methodSource, ops);
-                methodSource.Append("};");
-                
-                methodSource.Append("}finally{this.");
-                methodSource.Append(lockName);
-                methodSource.Append(".Release();}return ");
+                methodSource.AppendLine("};");
+
+                ExitLock(methodSource, lockName);
+
+                methodSource.Append("return ");
                 methodSource.Append(singleInstanceFieldName);
                 methodSource.Append(";}");
                 _containerMembersSource.Append(methodSource);
@@ -884,13 +877,11 @@ var disposed = global::System.Threading.Interlocked.Exchange(ref this._disposed,
 if (disposed != 0) return;");
                 foreach (var (_, disposeFieldName, lockName) in singleInstanceMethodsDisposalOrderings)
                 {
-                    file.Append(@"await this.");
-                    file.Append(lockName);
-                    file.Append(".WaitAsync();try{await(this.");
+                    EnterLock(file, lockName);
+                    file.Append("await(this.");
                     file.Append(disposeFieldName);
-                    file.Append("?.Invoke()??default);}finally{this.");
-                    file.Append(lockName);
-                    file.Append(@".Release();}");
+                    file.Append("?.Invoke()??default);");
+                    ExitLock(file, lockName);
                 }
                 file.Append('}');
                 if (anySync)
@@ -905,13 +896,11 @@ var disposed = global::System.Threading.Interlocked.Exchange(ref this._disposed,
 if (disposed != 0) return;");
                 foreach (var (_, disposeFieldName, lockName) in singleInstanceMethodsDisposalOrderings)
                 {
-                    file.Append(@"this.");
-                    file.Append(lockName);
-                    file.Append(".Wait();try{this.");
+                    EnterLock(file, lockName);
+                    file.Append("this.");
                     file.Append(disposeFieldName);
-                    file.Append("?.Invoke();}finally{this.");
-                    file.Append(lockName);
-                    file.Append(@".Release();}");
+                    file.AppendLine("?.Invoke();");
+                    ExitLock(file, lockName);
                 }
                 file.Append('}');
             }
@@ -924,6 +913,26 @@ if (disposed != 0) return;");
             methodSource.Append("(nameof(");
             methodSource.Append(_container.NameWithTypeParameters());
             methodSource.Append("));");
+        }
+
+        void EnterLock(StringBuilder methodSource, string lockName)
+        {
+            methodSource.AppendLine("try");
+            methodSource.AppendLine("{");
+            methodSource.Append("global::System.Threading.Monitor.Enter(");
+            methodSource.Append(lockName);
+            methodSource.AppendLine(");");
+        }
+
+        void ExitLock(StringBuilder methodSource, string lockName)
+        {
+            methodSource.AppendLine("}");
+            methodSource.AppendLine("finally");
+            methodSource.AppendLine("{");
+            methodSource.Append("global::System.Threading.Monitor.Exit(");
+            methodSource.Append(lockName);
+            methodSource.AppendLine(");");
+            methodSource.AppendLine("}");
         }
     }
 }
